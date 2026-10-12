@@ -914,6 +914,22 @@ void TSMuxer::processM2TSPCR(const int64_t pcrVal, const int64_t pcrGAP)
     m_prevM2TSPCR = hiResPCR;
 }
 
+// A PCR packet has an adaptation field and no payload, and a packet without payload does not advance
+// the continuity counter: it repeats the one of the last packet with payload on its PID (ISO/IEC
+// 13818-1, 2.4.3.3). m_tsCnt is the counter the NEXT payload packet takes, so the one to repeat is
+// m_tsCnt - 1, modulo 16. Writing m_tsCnt itself put two continuity errors around nearly every PCR sent on the
+// video PID, which is where the PCR goes by default: one on the PCR packet and one on the payload
+// packet after it.
+// A PCR PID that carries no stream, like the one --no-pcr-on-video-pid allocates, has no payload whose
+// counter could be repeated. It keeps the constant counter it always had.
+int TSMuxer::pcrPacketCounter()
+{
+    const int nextCnt = m_streamInfo[m_pmt.pcr_pid].m_tsCnt;
+    if (!m_pmt.pidList.contains(m_pmt.pcr_pid))
+        return nextCnt;
+    return (nextCnt + 15) & 15;
+}
+
 void TSMuxer::writeEmptyPacketWithPCRTest(const int64_t pcrVal)
 {
     if (m_m2tsMode)
@@ -930,7 +946,7 @@ void TSMuxer::writeEmptyPacketWithPCRTest(const int64_t pcrVal)
     tsPacket->setPID(m_pmt.pcr_pid);
     tsPacket->afExists = 1;
     tsPacket->adaptiveField.setPCR33(pcrVal);
-    tsPacket->counter = m_streamInfo[m_pmt.pcr_pid].m_tsCnt;  // do not increment counter because data_exists == 0
+    tsPacket->counter = pcrPacketCounter();
 
     memset(curBuf + tsPacket->getHeaderSize(), 0xff, TS_FRAME_SIZE - tsPacket->getHeaderSize());
     tsPacket->adaptiveField.length += TS_FRAME_SIZE - tsPacket->getHeaderSize();
@@ -956,7 +972,7 @@ void TSMuxer::writeEmptyPacketWithPCR(const int64_t pcrVal)
     tsPacket->setPID(m_pmt.pcr_pid);
     tsPacket->afExists = 1;
     tsPacket->adaptiveField.setPCR33(pcrVal);
-    tsPacket->counter = m_streamInfo[m_pmt.pcr_pid].m_tsCnt;  // do not increment counter becouse data_exists == 0
+    tsPacket->counter = pcrPacketCounter();
 
     memset(curBuf + tsPacket->getHeaderSize(), 0xff, TS_FRAME_SIZE - tsPacket->getHeaderSize());
     tsPacket->adaptiveField.length += TS_FRAME_SIZE - tsPacket->getHeaderSize();
