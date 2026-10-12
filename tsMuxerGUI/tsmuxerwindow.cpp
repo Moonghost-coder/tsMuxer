@@ -4527,6 +4527,8 @@ void TsMuxerWindow::onColorBtnClicked()
 {
     QColor color = fontSettingsModel->color();
     color = QColorDialog::getColor(color, this);
+    if (!color.isValid())  // cancelled: an invalid QColor's rgba() is 0xff000000, opaque black
+        return;
     fontSettingsModel->setColor(color.rgba());
 
     writeSettings();
